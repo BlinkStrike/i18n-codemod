@@ -19,10 +19,20 @@ function generateKey(componentName, text) {
 }
 
 module.exports = function transformer(file, api) {
-  const root = j(file.source);
-  const componentName = path.basename(file.path, '.js');
-
-  let hasImport = false;
+  try {
+    const root = j(file.source);
+    const componentName = path.basename(file.path, '.js');
+    let hasImport = false;
+    
+    // Track if we're in a component file
+    const isComponentFile = file.path.includes('components/') || file.path.includes('Components/');
+    
+    if (!isComponentFile) {
+      console.log(`Skipping non-component file: ${file.path}`);
+      return file.source; // Skip non-component files
+    }
+    
+    console.log(`\nProcessing component: ${componentName} (${file.path})`);
   root.find(j.ImportDeclaration).forEach(p => {
     if (p.node.source.value === 'react-i18next') {
       hasImport = true;
@@ -60,17 +70,32 @@ module.exports = function transformer(file, api) {
     }
   });
 
+  // Process simple text nodes
   root.find(j.JSXText).forEach(pathNode => {
-    const text = pathNode.node.value.trim();
-    if (text) {
+    try {
+      const text = pathNode.node.value.trim();
+      if (!text) return;
+      
+      // Skip if the text is just a parameter like {error}
+      if (/^\s*\{[^}]+\}\s*$/.test(text)) {
+        console.log(`Skipping parameter: ${text}`);
+        return;
+      }
+      
       const key = generateKey(componentName, text);
+      console.log(`Processing text: "${text}" -> ${key}`);
+      
       addTranslation(key, text);
-
       pathNode.replace(
         j.jsxExpressionContainer(
           j.callExpression(j.identifier('t'), [j.literal(key)])
         )
       );
+    } catch (error) {
+      console.error(`Error processing text node at line ${pathNode.node.loc?.start?.line} in ${file.path}:`);
+      console.error(`Text: "${pathNode.node.value}"`);
+      console.error('Error:', error.message);
+      throw error; // Re-throw to stop execution
     }
   });
 
@@ -98,23 +123,40 @@ module.exports = function transformer(file, api) {
 
       const fullText = textParts.join(' ');
       if (fullText) {
-        const key = generateKey(componentName, fullText);
-        addTranslation(key, fullText);
+        // Only process if there's actual text content beyond just parameters
+        const hasNonParameterContent = textParts.some(part => !/^\{\{[^}]+\}\}$/.test(part));
+        
+        if (hasNonParameterContent) {
+          const key = generateKey(componentName, fullText);
+          addTranslation(key, fullText);
 
-        const params = variables.map(v =>
-          j.property('init', j.identifier(v), j.identifier(v))
-        );
-        pathNode.node.children = [
-          j.jsxExpressionContainer(
-            j.callExpression(j.identifier('t'), [
-              j.literal(key),
-              j.objectExpression(params)
-            ])
-          )
-        ];
+          const params = variables.map(v =>
+            j.property('init', j.identifier(v), j.identifier(v))
+          );
+          
+          const tCallArgs = [j.literal(key)];
+          if (params.length > 0) {
+            tCallArgs.push(j.objectExpression(params));
+          }
+          
+          pathNode.node.children = [
+            j.jsxExpressionContainer(
+              j.callExpression(j.identifier('t'), tCallArgs)
+            )
+          ];
+        }
       }
     }
   });
 
-  return root.toSource({ quote: 'single' });
+    return root.toSource({ quote: 'single' });
+  } catch (error) {
+    console.error('\n❌ Transformation failed in file:', file.path);
+    console.error('Error:', error.message);
+    console.error('Stack:', error.stack?.split('\n').slice(0, 3).join('\n'));
+    console.error('\nPlease check the component for any syntax errors or unsupported patterns.');
+    
+    // Return the original source to avoid breaking the build
+    return file.source;
+  }
 };

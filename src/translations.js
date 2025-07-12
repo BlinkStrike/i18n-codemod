@@ -5,11 +5,13 @@ const path = require('path');
 function readJsonFile(filePath) {
   try {
     if (fs.existsSync(filePath)) {
-      const content = fs.readFileSync(filePath, 'utf8');
+      const content = fs.readFileSync(filePath, 'utf8').trim();
+      // If file exists but is empty, return empty object
+      if (!content) return {};
       return JSON.parse(content);
     }
   } catch (e) {
-    console.error(`Error reading ${filePath}:`, e);
+    console.warn(`Warning: Could not read ${filePath}, starting with empty translations. Error:`, e.message);
   }
   return {};
 }
@@ -38,9 +40,9 @@ function getTranslationFilePaths() {
   };
 }
 
-// Add a single translation
+// Add a single translation if it doesn't already exist
 function addTranslation(key, text) {
-  console.log(`Adding translation: ${key} = ${text}`);
+  if (!key || !text) return; // Skip if key or text is empty
   
   const paths = getTranslationFilePaths();
   
@@ -48,15 +50,26 @@ function addTranslation(key, text) {
   const enTranslations = readJsonFile(paths.en);
   const heTranslations = readJsonFile(paths.he);
   
-  // Add new translations
-  enTranslations[key] = text;
-  if (!(key in heTranslations)) {
-    heTranslations[key] = '';
+  let updated = false;
+  
+  // Only add if the key doesn't exist in English translations
+  if (!(key in enTranslations)) {
+    console.log(`Adding new translation: ${key} = ${text}`);
+    enTranslations[key] = text;
+    updated = true;
   }
   
-  // Save back to files
-  writeJsonFile(paths.en, enTranslations);
-  writeJsonFile(paths.he, heTranslations);
+  // Ensure the key exists in Hebrew translations (empty if new)
+  if (!(key in heTranslations)) {
+    heTranslations[key] = '';
+    updated = true;
+  }
+  
+  // Only write files if there were updates
+  if (updated) {
+    writeJsonFile(paths.en, enTranslations);
+    writeJsonFile(paths.he, heTranslations);
+  }
 }
 
 // Save all translations (for backward compatibility)
