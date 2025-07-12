@@ -3,11 +3,19 @@ const j = require('jscodeshift');
 const { addTranslation } = require('./translations');
 
 function generateKey(componentName, text) {
-  const slug = text
+  // Convert text to camelCase
+  return text
     .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '_')
-    .replace(/^_|_$/g, '');
-  return `${componentName}_${slug}`;
+    // Replace any non-alphanumeric characters with a space
+    .replace(/[^a-z0-9]+/g, ' ')
+    // Trim whitespace
+    .trim()
+    // Convert to camelCase
+    .replace(/(?:^|\s)(\w)/g, (match, p1, offset) => 
+      offset === 0 ? p1.toLowerCase() : p1.toUpperCase()
+    )
+    // Remove any remaining spaces
+    .replace(/\s+/g, '');
 }
 
 module.exports = function transformer(file, api) {
