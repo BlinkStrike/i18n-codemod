@@ -22,23 +22,22 @@ module.exports = function transformer(file, api) {
   try {
     const root = j(file.source);
     const componentName = path.basename(file.path, '.js');
-    let hasImport = false;
-    
-    // Track if we're in a component file
-    const isComponentFile = file.path.includes('components') || file.path.includes('Components');
-    
-    if (!isComponentFile) {
-      console.log(`Skipping non-component file: ${file.path}`);
-      return file.source; // Skip non-component files
+    // More robust check: A file is a component if it contains JSX.
+    const hasJsx = root.find(j.JSXElement).length > 0 || root.find(j.JSXFragment).length > 0;
+
+    if (!hasJsx) {
+      console.log(`Skipping non-component file (no JSX): ${file.path}`);
+      return file.source;
     }
-    
+
     console.log(`\nProcessing component: ${componentName} (${file.path})`);
-  root.find(j.ImportDeclaration).forEach(p => {
-    if (p.node.source.value === 'react-i18next') {
-      hasImport = true;
-    }
-  });
-  if (!hasImport) {
+
+    // Ensure useTranslation is imported if not already present
+    const hasI18nImport = root.find(j.ImportDeclaration, {
+      source: { value: 'react-i18next' },
+    }).length > 0;
+
+  if (!hasI18nImport) {
     root.get().node.program.body.unshift(
       j.importDeclaration(
         [j.importSpecifier(j.identifier('useTranslation'))],
