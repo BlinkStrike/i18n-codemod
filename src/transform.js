@@ -47,58 +47,77 @@ module.exports = function transformer(file, api) {
     );
   }
 
-  // Add useTranslation hook at the beginning of function components
-  root.find(j.FunctionDeclaration).forEach(p => {
-    try {
-      const body = p.node.body.body;
-      
-      // Check if this is a React component (returns JSX)
-      const returnsJsx = body.some(stmt => {
-        return stmt.type === 'ReturnStatement' && 
-               stmt.argument && 
-               (stmt.argument.type === 'JSXElement' || 
-                stmt.argument.type === 'JSXFragment');
-      });
-      
-      if (!returnsJsx) return;
-      
-      // Check if we already have the t function
-      const alreadyHasT = body.some(
-        stmt =>
-          stmt.type === 'VariableDeclaration' &&
-          stmt.declarations.some(
-            d =>
-              d.id.type === 'ObjectPattern' &&
-              d.id.properties.some(prop => 
-                (prop.key.name === 't' || prop.value.name === 't')
-              )
-          )
-      );
-      
-      if (!alreadyHasT) {
-        // Add at the beginning of the function body
-        body.unshift(
-          j.variableDeclaration('const', [
-            j.variableDeclarator(
-              j.objectPattern([
-                j.objectProperty(
-                  j.identifier('t'),
-                  j.identifier('t'),
-                  false,
-                  true
-                )
-              ]),
-              j.callExpression(j.identifier('useTranslation'), [])
-            )
-          ])
-        );
-        console.log('✅ Added useTranslation hook to component');
+  // Helper function to add useTranslation hook
+  const addUseTranslationHook = (node) => {
+    let body = node.body;
+
+    // Handle implicit return in arrow functions
+    if (body.type !== 'BlockStatement') {
+      if (body.type === 'JSXElement' || body.type === 'JSXFragment') {
+        node.body = j.blockStatement([j.returnStatement(body)]);
+        body = node.body;
       } else {
-        console.log('ℹ️ Component already has t function');
+        // Not a component if it doesn't return JSX
+        return;
       }
-    } catch (error) {
-      console.error('Error processing function component:');
-      console.error(error);
+    }
+
+    const bodyStatements = body.body;
+
+    // Check if this is a React component (returns JSX)
+    const returnsJsx = bodyStatements.some(stmt =>
+      stmt.type === 'ReturnStatement' &&
+      stmt.argument &&
+      (stmt.argument.type === 'JSXElement' || stmt.argument.type === 'JSXFragment')
+    );
+
+    if (!returnsJsx) return;
+
+    // Check if we already have the t function
+    const alreadyHasT = bodyStatements.some(
+      stmt =>
+        stmt.type === 'VariableDeclaration' &&
+        stmt.declarations.some(
+          d =>
+            d.id.type === 'ObjectPattern' &&
+            d.id.properties.some(prop => prop.key.name === 't')
+        )
+    );
+
+    if (!alreadyHasT) {
+      bodyStatements.unshift(
+        j.variableDeclaration('const', [
+          j.variableDeclarator(
+            j.objectPattern([
+              j.property('init', j.identifier('t'), j.identifier('t'))
+            ]),
+            j.callExpression(j.identifier('useTranslation'), [])
+          )
+        ])
+      );
+      console.log('✅ Added useTranslation hook to component');
+    } else {
+      console.log('ℹ️ Component already has t function');
+    }
+  };
+
+  // Find all function declarations, expressions, and arrow functions
+  root.find(j.Function).forEach(p => {
+    // Check if it's a likely component (name starts with uppercase)
+    let isComponent = false;
+    if (p.node.type === 'FunctionDeclaration' && p.node.id.name.match(/^[A-Z]/)) {
+      isComponent = true;
+    }
+    if ((p.node.type === 'FunctionExpression' || p.node.type === 'ArrowFunctionExpression') && p.parent.node.type === 'VariableDeclarator' && p.parent.node.id.name.match(/^[A-Z]/)) {
+        isComponent = true;
+    }
+
+    if (isComponent) {
+        try {
+            addUseTranslationHook(p.node);
+        } catch (error) {
+            console.error('Error processing function component:', error);
+        }
     }
   });
 
