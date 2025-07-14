@@ -25,7 +25,7 @@ module.exports = function transformer(file, api) {
     let hasImport = false;
     
     // Track if we're in a component file
-    const isComponentFile = file.path.includes('components/') || file.path.includes('Components/');
+    const isComponentFile = file.path.includes('components') || file.path.includes('Components');
     
     if (!isComponentFile) {
       console.log(`Skipping non-component file: ${file.path}`);
@@ -47,26 +47,58 @@ module.exports = function transformer(file, api) {
     );
   }
 
+  // Add useTranslation hook at the beginning of function components
   root.find(j.FunctionDeclaration).forEach(p => {
-    const body = p.node.body.body;
-    const alreadyHasT = body.some(
-      stmt =>
-        stmt.type === 'VariableDeclaration' &&
-        stmt.declarations.some(
-          d =>
-            d.id.type === 'ObjectPattern' &&
-            d.id.properties.some(prop => prop.key.name === 't')
-        )
-    );
-    if (!alreadyHasT) {
-      body.unshift(
-        j.variableDeclaration('const', [
-          j.variableDeclarator(
-            j.objectPattern([j.property('init', j.identifier('t'), j.identifier('t'))]),
-            j.callExpression(j.identifier('useTranslation'), [])
+    try {
+      const body = p.node.body.body;
+      
+      // Check if this is a React component (returns JSX)
+      const returnsJsx = body.some(stmt => {
+        return stmt.type === 'ReturnStatement' && 
+               stmt.argument && 
+               (stmt.argument.type === 'JSXElement' || 
+                stmt.argument.type === 'JSXFragment');
+      });
+      
+      if (!returnsJsx) return;
+      
+      // Check if we already have the t function
+      const alreadyHasT = body.some(
+        stmt =>
+          stmt.type === 'VariableDeclaration' &&
+          stmt.declarations.some(
+            d =>
+              d.id.type === 'ObjectPattern' &&
+              d.id.properties.some(prop => 
+                (prop.key.name === 't' || prop.value.name === 't')
+              )
           )
-        ])
       );
+      
+      if (!alreadyHasT) {
+        // Add at the beginning of the function body
+        body.unshift(
+          j.variableDeclaration('const', [
+            j.variableDeclarator(
+              j.objectPattern([
+                j.objectProperty(
+                  j.identifier('t'),
+                  j.identifier('t'),
+                  false,
+                  true
+                )
+              ]),
+              j.callExpression(j.identifier('useTranslation'), [])
+            )
+          ])
+        );
+        console.log('✅ Added useTranslation hook to component');
+      } else {
+        console.log('ℹ️ Component already has t function');
+      }
+    } catch (error) {
+      console.error('Error processing function component:');
+      console.error(error);
     }
   });
 
